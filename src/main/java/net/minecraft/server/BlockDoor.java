@@ -2,8 +2,6 @@ package net.minecraft.server;
 
 import java.util.Random;
 
-import org.bukkit.event.block.BlockRedstoneEvent; // CraftBukkit
-
 public class BlockDoor extends Block {
 
     protected BlockDoor(Material material) {
@@ -178,10 +176,7 @@ public class BlockDoor extends Block {
                 int oldPower = (world.getData(i, j, k) & 4) > 0 ? 15 : 0;
 
                 if (oldPower == 0 ^ power == 0) {
-                    BlockRedstoneEvent eventRedstone = new BlockRedstoneEvent(bukkitBlock, oldPower, power);
-                    world.getServer().getPluginManager().callEvent(eventRedstone);
-
-                    this.setDoor(world, i, j, k, eventRedstone.getNewCurrent() > 0);
+                    this.setDoor(world, i, j, k, org.bukkit.craftbukkit.event.CraftEventFactory.callRedstoneChange(world, i, j, k, oldPower, power).getNewCurrent() > 0);
                 }
                 // CraftBukkit end
             }

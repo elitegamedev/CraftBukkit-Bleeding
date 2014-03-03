@@ -30,6 +30,7 @@ import net.minecraft.server.World;
 import net.minecraft.server.WorldServer;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Server;
 import org.bukkit.Statistic.Type;
@@ -67,10 +68,13 @@ import org.bukkit.event.entity.*;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 import org.bukkit.event.entity.EntityDamageEvent.DamageCause;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.*;
 import org.bukkit.event.server.ServerListPingEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.meta.BookMeta;
 
@@ -308,15 +312,28 @@ public class CraftEventFactory {
         return event;
     }
 
+    public static void handleBlockFadeEvent(World world, int x, int y, int z, net.minecraft.server.Block type) {
+        Block block = world.getWorld().getBlockAt(x, y, z);
+        BlockState state = block.getState();
+        state.setType(CraftMagicNumbers.getMaterial(type));
+
+        if (callEvent(new BlockFadeEvent(block, state)).isCancelled()) {
+            state.update(true);
+        }
+    }
+
+    public static void handleBlockSpreadEvent(World world, int x, int y, int z, int sourceX, int sourceY, int sourceZ, net.minecraft.server.Block type, int data) {
+        CraftWorld bukkitWorld = world.getWorld();
+
+        handleBlockSpreadEvent(bukkitWorld.getBlockAt(x, y, z), bukkitWorld.getBlockAt(sourceX, sourceY, sourceZ), type, data);
+    }
+
     public static void handleBlockSpreadEvent(Block block, Block source, net.minecraft.server.Block type, int data) {
         BlockState state = block.getState();
-        state.setTypeId(net.minecraft.server.Block.b(type));
+        state.setType(CraftMagicNumbers.getMaterial(type));
         state.setRawData((byte) data);
 
-        BlockSpreadEvent event = new BlockSpreadEvent(block, source, state);
-        Bukkit.getPluginManager().callEvent(event);
-
-        if (!event.isCancelled()) {
+        if (!callEvent(new BlockSpreadEvent(block, source, state)).isCancelled()) {
             state.update(true);
         }
     }
@@ -413,11 +430,7 @@ public class CraftEventFactory {
 
             return callEntityDamageEvent(damager, entity, cause, damage);
         } else if (source == DamageSource.OUT_OF_WORLD) {
-            EntityDamageEvent event = callEvent(new EntityDamageByBlockEvent(null, entity.getBukkitEntity(), DamageCause.VOID, damage));
-            if (!event.isCancelled()) {
-                event.getEntity().setLastDamageCause(event);
-            }
-            return event;
+            return handleEntityDamageByBlockEvent(null, entity, source, damage);
         }
 
         DamageCause cause = null;
@@ -460,6 +473,24 @@ public class CraftEventFactory {
             return false;
         }
         return event.isCancelled() || event.getDamage() == 0;
+    }
+
+    public static EntityDamageEvent handleEntityDamageByBlockEvent(Block block, Entity entity, DamageSource source, float damage) {
+        DamageCause cause = null;
+
+        if (source == DamageSource.CACTUS) {
+            cause = DamageCause.CONTACT;
+        } else if (source == DamageSource.OUT_OF_WORLD) {
+            cause = DamageCause.VOID;
+        }
+
+        EntityDamageEvent event = callEvent(new EntityDamageByBlockEvent(block, entity.getBukkitEntity(), cause, damage));
+
+        if (!event.isCancelled()) {
+            event.getEntity().setLastDamageCause(event);
+        }
+
+        return event;
     }
 
     public static PlayerLevelChangeEvent callPlayerLevelChangeEvent(Player player, int oldLevel, int newLevel) {
@@ -618,9 +649,7 @@ public class CraftEventFactory {
     }
 
     public static BlockRedstoneEvent callRedstoneChange(World world, int x, int y, int z, int oldCurrent, int newCurrent) {
-        BlockRedstoneEvent event = new BlockRedstoneEvent(world.getWorld().getBlockAt(x, y, z), oldCurrent, newCurrent);
-        world.getServer().getPluginManager().callEvent(event);
-        return event;
+        return callEvent(new BlockRedstoneEvent(world.getWorld().getBlockAt(x, y, z), oldCurrent, newCurrent));
     }
 
     public static NotePlayEvent callNotePlayEvent(World world, int x, int y, int z, byte instrument, byte note) {
@@ -736,6 +765,10 @@ public class CraftEventFactory {
         return event;
     }
 
+    public static EntityInteractEvent callEntityInteractEvent(Entity entity, Block block) {
+        return callEvent(new EntityInteractEvent(entity.getBukkitEntity(), block));
+    }
+
     public static Cancellable handleStatisticsIncrease(EntityHuman entityHuman, net.minecraft.server.Statistic statistic, int current, int incrementation) {
         Player player = ((EntityPlayer) entityHuman).getBukkitEntity();
         Event event;
@@ -774,5 +807,42 @@ public class CraftEventFactory {
         }
         entityHuman.world.getServer().getPluginManager().callEvent(event);
         return (Cancellable) event;
+    }
+
+    public static BlockFromToEvent callBlockFromToEvent(World world, int x, int y, int z, int toX, int toY, int toZ) {
+        CraftWorld bukkitWorld = world.getWorld();
+
+        return callEvent(new BlockFromToEvent(bukkitWorld.getBlockAt(x, y, z), bukkitWorld.getBlockAt(toX, toY, toZ)));
+    }
+
+    public static BlockFromToEvent callBlockFromToEvent(Block block, BlockFace face) {
+        return callEvent(new BlockFromToEvent(block, face));
+    }
+
+    public static InventoryMoveItemEvent callInventoryMoveItemEvent(Inventory sourceInventory, CraftItemStack itemStack, Inventory destinationInventory, boolean didSourceInitiate) {
+        return callEvent(new InventoryMoveItemEvent(sourceInventory, itemStack, destinationInventory, didSourceInitiate));
+    }
+
+    public static InventoryDragEvent callInventoryDragEvent(InventoryView view, org.bukkit.inventory.ItemStack oldCursor, org.bukkit.inventory.ItemStack newCursor, boolean isRightClick, Map<Integer, org.bukkit.inventory.ItemStack> itemMap) {
+        return callEvent(new InventoryDragEvent(view, oldCursor, newCursor, isRightClick, itemMap));
+    }
+    public static EntityPortalEnterEvent callEntityPortalEnterEvent(Entity entity, World world, int x, int y, int z) {
+        return callEvent(new EntityPortalEnterEvent(entity.getBukkitEntity(), new Location(world.getWorld(), x, y, z)));
+    }
+
+    public static BlockBurnEvent callBlockBurnEvent(World world, int x, int y, int z) {
+        return callEvent(new BlockBurnEvent(world.getWorld().getBlockAt(x, y, z)));
+    }
+
+    public static LeavesDecayEvent callLeavesDecayEvent(World world, int x, int y, int z) {
+        return callEvent(new LeavesDecayEvent(world.getWorld().getBlockAt(x, y, z)));
+    }
+
+    public static BlockPistonEvent callBlockPistonEvent(World world, int x, int y, int z, int length, int blockFace) {
+        if (length <= 0) {
+            return callEvent(new BlockPistonRetractEvent(world.getWorld().getBlockAt(x, y, z), CraftBlock.notchToBlockFace(blockFace)));
+        } else {
+            return callEvent(new BlockPistonExtendEvent(world.getWorld().getBlockAt(x, y, z), length, CraftBlock.notchToBlockFace(blockFace)));
+        }
     }
 }
